@@ -50,39 +50,26 @@ def generate_roadmap():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
     
-@app.route("/api/expand-node", methods=["POST"])
+@app.route('/api/expand-node', methods=['POST'])
 def expand_node():
-    data = request.get_json() or {}
-    node_label = data.get("label", "")
-    roadmap_title = data.get("roadmap_title", "Learning Path")
-    existing_ids = data.get("existing_ids", [])
-    parent_id = data.get("node_id", "")
-
     try:
-        result = ai_service.expand_node(
-            node_label=node_label,
-            roadmap_title=roadmap_title,
-            existing_ids=existing_ids,
-            parent_id=parent_id
-        )
+        data = request.get_json() or {}
+        roadmap_title = data.get('roadmap_title', 'Learning Path')
+        nodes = data.get('nodes', [])
+        edges = data.get('edges', [])
+
+        if not nodes:
+            return jsonify({'error': 'Graph nodes are required for planning'}), 400
+
+        # Invoke AI Service graph planner
+        ai_response = ai_service.generate_next_step(roadmap_title, nodes, edges)
         
-        nodes = result.get("nodes", [])
-        edges = [
-            {"from": e.get("from_node") or e.get("from"), "to": e.get("to_node") or e.get("to")}
-            for e in result.get("edges", [])
-        ]
-
-        # FIX: Wrap nodes and edges inside a 'data' dictionary
         return jsonify({
-            "status": "success",
-            "data": {
-                "nodes": nodes,
-                "edges": edges
-            }
-        }), 200
-
+            'success': True,
+            'data': ai_response
+        })
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/explore', methods=['POST'])
 def explore_node():

@@ -45,3 +45,14 @@
     background-color: transparent !important;
     background: transparent !important;
 }
+
+.roadmap-node {
+    position: absolute; /* Required for both X (left) and Y (top) dragging */
+    cursor: grab;
+    user-select: none;
+    touch-action: none; /* Prevents default browser scrolling on touch devices */
+}
+
+.roadmap-node:active {
+    cursor: grabbing;
+}

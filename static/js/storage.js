@@ -24,5 +24,14 @@ const StorageManager = {
     saveResources: function(topic, data) {
         const key = `${this.RESOURCES_PREFIX}${topic.toLowerCase().trim()}`;
         localStorage.setItem(key, JSON.stringify(data));
+    },
+    
+    saveNodePosition(nodeId, x, y) {
+        const positions = JSON.parse(localStorage.getItem('node_positions') || '{}');
+        
+        // Save both horizontal (x) and vertical (y) coordinates
+        positions[nodeId] = { x: parseInt(x, 10), y: parseInt(y, 10) };
+        
+        localStorage.setItem('node_positions', JSON.stringify(positions));
     }
 };

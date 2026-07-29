@@ -16,8 +16,24 @@ const ApiClient = {
         return this.post('/api/generate-roadmap', payload);
     },
 
-    expandNode: function(payload) {
-        return this.post('/api/expand-node', payload);
+    expandNode: async function(payload) {
+        const response = await fetch('/api/expand-node', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                roadmap_title: payload.roadmap_title,
+                nodes: payload.nodes,
+                edges: payload.edges
+            })
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || 'Failed to generate next step');
+        }
+
+        const resData = await response.json();
+        return resData.data;
     },
 
     generateResources: function(payload) {

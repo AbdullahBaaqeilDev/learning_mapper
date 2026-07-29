@@ -3,7 +3,7 @@ import json
 import logging
 from google import genai
 from google.genai import types
-from schemas import RoadmapSchema, ResourceListSchema
+from schemas import RoadmapSchema, ResourceListSchema, GenerateNextStepResponse
 
 logger = logging.getLogger(__name__)
 
@@ -218,3 +218,60 @@ Respond STRICTLY in valid JSON format with the following structure:
         if isinstance(parsed, dict) and "sub_steps" in parsed:
             return parsed["sub_steps"]
         return parsed
+
+    def generate_next_step(self, roadmap_title: str, nodes: list, edges: list) -> dict:
+        """
+        Graph-aware planner that connects existing nodes or creates 1 bridge node
+        to reach orphan destination nodes.
+        """
+        # Format graph summary for prompt
+        node_summary = []
+        for n in nodes:
+            node_summary.append(f"- ID: {n.get('id')} | Label: '{n.get('label')}' | Status: {n.get('status')}")
+        
+        edge_summary = []
+        for e in edges:
+            edge_summary.append(f"- {e.get('from')} -> {e.get('to')}")
+
+        prompt = f"""
+        You are an intelligent Graph Roadmap Planner for the roadmap: "{roadmap_title}".
+
+        CURRENT GRAPH STRUCTURE:
+        NODES:
+        {chr(10).join(node_summary)}
+
+        EDGES:
+        {chr(10).join(edge_summary) if edge_summary else "No edges yet."}
+
+        ALGORITHM INSTRUCTIONS:
+        1. ANALYZE GRAPH & FIND ORPHANS:
+           - Identify orphan nodes (nodes with 0 incoming edges that represent target goals or disconnected objectives).
+           - Identify active/completed source nodes that can advance the path.
+
+        2. DIRECT CONNECTION CHECK:
+           - Can an existing completed/active node naturally fulfill the prerequisites for an orphan target node?
+           - If YES: Set "direct_connect": true, "new_node": null, and return the edge connecting them in "new_edges". DO NOT generate a new node.
+
+        3. GENERATE BRIDGING NODE (If Direct Connection is NOT possible):
+           - Generate EXACTLY ONE meaningful bridge node that moves the learner closer to an orphan target node.
+           - Avoid tiny steps and huge leaps.
+
+        4. STRICT SEMANTIC DEDUPLICATION:
+           - Compare the proposed topic against ALL existing node labels: {[n.get('label') for n in nodes]}.
+           - DO NOT generate nodes that overlap heavily in scope, mean the same thing, or differ only by phrasing (e.g., 'Loops' vs 'For Loops').
+
+        5. RETURN EDGES:
+           - Connect the existing source node -> new_node, and if applicable, new_node -> orphan_target.
+        """
+
+        # Call Gemini model using structured output schema
+        response = self.client.models.generate_content(
+            model='gemini-3.6-flash',
+            contents=prompt,
+            config={
+                'response_mime_type': 'application/json',
+                'response_schema': GenerateNextStepResponse,
+                'temperature': 0.2
+            }
+        )
+        return json.loads(response.text)

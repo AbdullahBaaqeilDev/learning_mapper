@@ -1,6 +1,24 @@
 from pydantic import BaseModel, Field
-from typing import List, Literal
+from typing import List, Literal, Optional
 
+
+class NextStepNode(BaseModel):
+    id: str = Field(description="Unique snake_case ID for the new node, e.g., 'file_persistence'")
+    label: str = Field(description="Concise topic label (2-4 words)")
+    status: str = Field(default="current", description="Status of the node: 'current' or 'locked'")
+
+class NextStepEdge(BaseModel):
+    from_node: str = Field(alias="from", description="ID of the source node")
+    to_node: str = Field(alias="to", description="ID of the target node")
+
+    class Config:
+        populate_by_name = True
+
+class GenerateNextStepResponse(BaseModel):
+    direct_connect: bool = Field(description="True if existing nodes were directly connected without creating a new node")
+    reasoning: str = Field(description="Brief explanation of why a direct connection was made or why this bridge node was chosen")
+    new_node: Optional[NextStepNode] = Field(default=None, description="The single bridge node created, or null if direct_connect is true")
+    new_edges: List[NextStepEdge] = Field(description="List of edges created (e.g. source -> new_node, new_node -> orphan_target, or direct source -> orphan_target)")
 class NodeSchema(BaseModel):
     id: str = Field(description="Unique alphanumeric identifier, e.g., 'node_1'")
     label: str = Field(description="Concise topic title, 2 to 5 words")

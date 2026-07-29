@@ -67,7 +67,9 @@ const RoadmapController = {
                     direction: 'LR',
                     sortMethod: 'directed',
                     levelSeparation: 240,
-                    nodeSpacing: 120
+                    nodeSpacing: 120,
+                    blockShifting: false, // Prevents snap-locking along axes
+                    edgeMinimization: false
                 }
             },
             physics: { enabled: false },
@@ -86,7 +88,58 @@ const RoadmapController = {
         this.loadState();
     },
 
+    calculateSmartPosition: function(sourceNodeId, targetNodeId) {
+        const positions = this.network.getPositions();
+        const sourcePos = positions[sourceNodeId] || { x: 0, y: 0 };
+        let targetPos = targetNodeId ? positions[targetNodeId] : null;
+
+        let posX = sourcePos.x + 220; // Default spacing to the right
+        let posY = sourcePos.y;
+
+        if (targetPos) {
+            // Place midpoint between source and target orphan node
+            posX = (sourcePos.x + targetPos.x) / 2;
+            posY = (sourcePos.y + targetPos.y) / 2;
+        }
+
+        // Collision avoidance check against existing nodes
+        const allNodes = this.nodesDataset.get();
+        let collision = true;
+        let attempts = 0;
+
+        while (collision && attempts < 10) {
+            collision = allNodes.some(node => {
+                const p = positions[node.id];
+                if (!p) return false;
+                const distance = Math.sqrt(Math.pow(p.x - posX, 2) + Math.pow(p.y - posY, 2));
+                return distance < 130; // Minimum allowed pixel gap between node centers
+            });
+
+            if (collision) {
+                // Shift vertically on collision
+                posY += (attempts % 2 === 0 ? 120 : -240);
+                attempts++;
+            }
+        }
+
+        return { x: posX, y: posY };
+    },
+
     bindEvents: function() {
+        // Track node position before drag starts
+        this.dragStartPositions = {};
+
+        this.network.on("dragStart", (params) => {
+            if (params.nodes.length > 0) {
+                const positions = this.network.getPositions(params.nodes);
+                params.nodes.forEach(nodeId => {
+                    if (positions[nodeId]) {
+                        this.dragStartPositions[nodeId] = { ...positions[nodeId] };
+                    }
+                });
+            }
+        });
+
         this.network.on("selectNode", (params) => {
             if (params.nodes.length === 1) {
                 this.openNodeModal(params.nodes[0]);
@@ -94,18 +147,44 @@ const RoadmapController = {
         });
 
         this.network.on("dragEnd", (params) => {
-            if (params.nodes.length > 0 && window.roadmapHistory) {
-                const positions = this.network.getPositions(params.nodes);
+            if (params.nodes.length > 0) {
+                // Un-fix layout hierarchy to allow free movement in all directions
+                this.network.setOptions({ layout: { hierarchical: { enabled: false } } });
+
+                const endPositions = this.network.getPositions(params.nodes);
+
                 params.nodes.forEach(nodeId => {
                     const node = this.nodesDataset.get(nodeId);
-                    if (node && positions[nodeId]) {
-                        node.x = positions[nodeId].x;
-                        node.y = positions[nodeId].y;
+                    const startPos = this.dragStartPositions[nodeId];
+                    const endPos = endPositions[nodeId];
+
+                    if (node && startPos && endPos) {
+                        // Calculate offset distance (delta)
+                        const deltaX = endPos.x - startPos.x;
+                        const deltaY = endPos.y - startPos.y;
+
+                        // Update dragged parent node
+                        node.x = endPos.x;
+                        node.y = endPos.y;
                         this.nodesDataset.update(node);
+
+                        // Move all child nodes by the same delta if moved
+                        if (deltaX !== 0 || deltaY !== 0) {
+                            const visited = new Set([nodeId]); // Mark root dragged node as visited
+                            this.moveChildrenRecursively(nodeId, deltaX, deltaY, visited);
+                        }
                     }
                 });
-                window.roadmapHistory.recordDrag(this.getCurrentState());
-                StorageManager.saveRoadmap(this.getCurrentState());
+
+                // Clear tracked drag start positions
+                this.dragStartPositions = {};
+
+                if (window.roadmapHistory) {
+                    window.roadmapHistory.recordDrag(this.getCurrentState());
+                }
+                if (typeof StorageManager !== 'undefined') {
+                    StorageManager.saveRoadmap(this.getCurrentState());
+                }
             }
         });
 
@@ -281,50 +360,111 @@ const RoadmapController = {
         }
     },
 
-    generateNextStep: async function() {
-        if (!this.selectedNodeId) return;
-        const node = this.nodesDataset.get(this.selectedNodeId);
-        if (!node) return;
+    moveChildrenRecursively: function(parentNodeId, deltaX, deltaY, visited = new Set()) {
+        // Prevent infinite loops in cyclical graphs
+        if (visited.has(parentNodeId)) return;
+        visited.add(parentNodeId);
 
+        // Get all connected edges
+        const connectedEdges = this.edgesDataset.get({
+            filter: edge => edge.from === parentNodeId
+        });
+
+        connectedEdges.forEach(edge => {
+            const childNodeId = edge.to;
+            
+            // Skip if child was already processed in this drag operation
+            if (visited.has(childNodeId)) return;
+
+            const childNode = this.nodesDataset.get(childNodeId);
+            const currentPos = this.network.getPositions([childNodeId])[childNodeId];
+
+            if (childNode && currentPos) {
+                // Calculate and update child's new absolute position using the same offset
+                const newX = currentPos.x + deltaX;
+                const newY = currentPos.y + deltaY;
+
+                // Update node in dataset and vis network view
+                childNode.x = newX;
+                childNode.y = newY;
+                this.nodesDataset.update(childNode);
+                this.network.moveNode(childNodeId, newX, newY);
+
+                // Recursively move downstream children of this child
+                this.moveChildrenRecursively(childNodeId, deltaX, deltaY, visited);
+            }
+        });
+    },
+    
+    generateNextStep: async function() {
         this.closeNodeModal();
-        this.showLoading(`Analysing trajectory to expand upon "${node.label}"...`);
+        this.showLoading("Analyzing graph trajectory & evaluating destination goals...");
 
         try {
-            const result = await ApiClient.expandNode({
-                node_id: node.id,
-                label: node.label,
+            // 1. Send entire node and edge datasets to backend AI planner
+            const plannerPayload = {
                 roadmap_title: this.currentRoadmapTitle,
-                existing_ids: this.nodesDataset.getIds(),
-                existing_labels: this.nodesDataset.get().map(n => n.label),
-                completed_history: this.getCompletedNodeLabels()
-            });
+                nodes: this.nodesDataset.get(),
+                edges: this.edgesDataset.get()
+            };
 
-            // Extract nodes array from response payload
-            const newNodesList = result.nodes || (result.data && result.data.nodes) || [];
-            const newEdgesList = result.edges || (result.data && result.data.edges) || [];
+            const result = await ApiClient.expandNode(plannerPayload);
 
-            if (newNodesList.length === 0) {
-                throw new Error("No new steps generated by the AI model.");
+            // 2. Format and add new edges returned by planner
+            const formattedEdges = (result.new_edges || []).map(edge => ({
+                from: edge.from || edge.from_node,
+                to: edge.to || edge.to_node
+            }));
+
+            // 3. Handle Direct Connection Case (No new node created)
+            if (result.direct_connect || !result.new_node) {
+                if (formattedEdges.length > 0) {
+                    this.edgesDataset.add(formattedEdges);
+                    this.commitState(true);
+                }
+                alert(`Goal Connected directly! ${result.reasoning || ''}`);
+                return;
             }
 
-            const formattedNewNodes = newNodesList.map(n => {
-                const style = this.styleMap[n.status] || this.styleMap.current;
-                return {
-                    id: n.id,
-                    label: n.label,
-                    status: n.status || 'current',
-                    color: { background: style.background, border: style.border },
-                    font: { color: style.text }
-                };
-            });
+            // 4. Handle Bridge Node Creation Case
+            const rawNode = result.new_node;
+            const style = this.styleMap[rawNode.status] || this.styleMap.current;
 
-            this.nodesDataset.add(formattedNewNodes);
-            this.edgesDataset.add(newEdgesList);
-            
+            // Find source and target orphan nodes to calculate non-overlapping position
+            const sourceEdge = formattedEdges.find(e => e.to === rawNode.id);
+            const targetEdge = formattedEdges.find(e => e.from === rawNode.id);
+
+            const smartPos = this.calculateSmartPosition(
+                sourceEdge ? sourceEdge.from : this.selectedNodeId,
+                targetEdge ? targetEdge.to : null
+            );
+
+            const newNodeObject = {
+                id: rawNode.id,
+                label: rawNode.label,
+                status: rawNode.status || 'current',
+                x: smartPos.x,
+                y: smartPos.y,
+                color: { background: style.background, border: style.border },
+                font: { color: style.text }
+            };
+
+            // Un-fix hierarchical layout temporarily to allow custom calculated coordinates
+            this.network.setOptions({ layout: { hierarchical: { enabled: false } } });
+
+            // Add node and edges to canvas
+            this.nodesDataset.add(newNodeObject);
+            if (formattedEdges.length > 0) {
+                this.edgesDataset.add(formattedEdges);
+            }
+
+            // Save state & redraw network smoothly
             this.commitState(true);
             setTimeout(() => this.network.fit({ animation: true }), 300);
+
         } catch (error) {
-            alert(`Expansion failed: ${error.message}`);
+            console.error("Next Step Generation Error:", error);
+            alert(`Planning failed: ${error.message}`);
         } finally {
             this.hideLoading();
         }
