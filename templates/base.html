@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Learning with AI - Roadmap & Resource Engine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <!-- 1. Vis.js Library (Must load first) -->
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+
+    <!-- 2. Animated Background Engine -->
+    <script src="{{ url_for('static', filename='js/network-bg.js') }}"></script>
+
+    <!-- 3. Main Application Logic -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body class="bg-slate-950 text-slate-100 h-screen flex flex-col font-sans overflow-hidden">
+
+    <!-- Header Navigation -->
+    <header class="border-b border-slate-800 bg-slate-900/70 backdrop-blur px-6 py-3.5 flex justify-between items-center z-10 shrink-0">
+        <div class="flex items-center space-x-6">
+            <a href="/" class="flex items-center space-x-3 group">
+                <div class="w-3 h-3 rounded-full bg-emerald-500 pulse-anim"></div>
+                <h1 class="font-bold text-lg tracking-wide text-white">Learning <span class="text-indigo-400">with AI</span></h1>
+            </a>
+            <nav class="hidden sm:flex items-center space-x-1 border-l border-slate-800 pl-6 text-xs font-semibold">
+                <a href="/" class="px-3 py-1.5 rounded-lg transition {% if request.path == '/' %}bg-slate-800 text-white{% else %}text-slate-400 hover:text-slate-200{% endif %}">Roadmap Workspace</a>
+                <a href="/resources" class="px-3 py-1.5 rounded-lg transition {% if request.path == '/resources' %}bg-slate-800 text-white{% else %}text-slate-400 hover:text-slate-200{% endif %}">Resource Library</a>
+            </nav>
+            <span id="roadmap-header-title" class="text-xs bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 px-3 py-1 rounded-full hidden font-medium"></span>
+        </div>
+        <div class="flex items-center space-x-3">
+            <button onclick="RoadmapController.loadDemoMode()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-xl transition shadow-lg shadow-indigo-600/20">
+                🚀 Launch Demo
+            </button>
+            <button onclick="RoadmapController.reset()" class="bg-slate-800 hover:bg-rose-950/60 hover:text-rose-300 text-slate-400 text-xs px-3.5 py-2 rounded-xl transition border border-slate-700/50">
+                Reset Map
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace Body -->
+    <main class="flex-1 relative overflow-hidden flex flex-col">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Global Loading Overlay -->
+    <div id="loading-overlay" class="absolute inset-0 bg-slate-950/85 backdrop-blur-md z-50 hidden flex-col items-center justify-center space-y-4">
+        <div class="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+        <p id="loading-text" class="text-sm font-semibold text-slate-200 tracking-wide"></p>
+    </div>
+
+    <!-- Application Modules -->
+    <script src="{{ url_for('static', filename='js/storage.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

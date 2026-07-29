@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="flex-1 overflow-y-auto p-6 md:p-8 space-y-6 max-w-7xl mx-auto w-full">
+    <!-- Breadcrumb Header -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-6">
+        <div>
+            <div id="resource-breadcrumb" class="text-xs font-semibold text-indigo-400 mb-1"></div>
+            <h1 id="resource-topic-title" class="text-2xl md:text-3xl font-extrabold text-white"></h1>
+        </div>
+        <button onclick="ResourcesController.showPreferences()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-4 py-2.5 rounded-xl border border-slate-700 transition self-start md:self-center">
+            &plus; Adjust Resource Preferences
+        </button>
+    </div>
+
+    <!-- No Topic Banner -->
+    <div id="no-topic-banner" class="hidden text-center py-20 bg-slate-900/40 border border-slate-800 rounded-3xl p-6 space-y-4">
+        <h2 class="text-lg font-bold text-white">No Topic Selected</h2>
+        <p class="text-xs text-slate-400 max-w-md mx-auto">Please navigate back to the roadmap workspace and select "Get Learning Resources" from any node context menu.</p>
+        <a href="/" class="inline-block bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-6 py-3 rounded-xl transition shadow-lg shadow-indigo-600/20">Return to Roadmap</a>
+    </div>
+
+    <div id="resource-workspace" class="space-y-6">
+        <!-- User Preferences Configuration Panel -->
+        <div id="preferences-panel" class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-5">
+            <div>
+                <h3 class="text-base font-bold text-white mb-1">Configure Learning Preferences</h3>
+                <p class="text-xs text-slate-400">Select your preferred educational media types before generating recommendations.</p>
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                <label class="flex items-center space-x-2.5 bg-slate-950 border border-slate-800 p-3 rounded-xl cursor-pointer hover:border-slate-700 transition">
+                    <input type="checkbox" name="pref-type" value="Video Courses" checked class="rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-0">
+                    <span class="text-xs font-medium text-slate-300">Video Courses</span>
+                </label>
+                <label class="flex items-center space-x-2.5 bg-slate-950 border border-slate-800 p-3 rounded-xl cursor-pointer hover:border-slate-700 transition">
+                    <input type="checkbox" name="pref-type" value="Official Documentation" checked class="rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-0">
+                    <span class="text-xs font-medium text-slate-300">Documentation</span>
+                </label>
+                <label class="flex items-center space-x-2.5 bg-slate-950 border border-slate-800 p-3 rounded-xl cursor-pointer hover:border-slate-700 transition">
+                    <input type="checkbox" name="pref-type" value="GitHub Repositories" checked class="rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-0">
+                    <span class="text-xs font-medium text-slate-300">GitHub Repos</span>
+                </label>
+                <label class="flex items-center space-x-2.5 bg-slate-950 border border-slate-800 p-3 rounded-xl cursor-pointer hover:border-slate-700 transition">
+                    <input type="checkbox" name="pref-type" value="Interactive Platforms" class="rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-0">
+                    <span class="text-xs font-medium text-slate-300">Interactive Code</span>
+                </label>
+                <label class="flex items-center space-x-2.5 bg-slate-950 border border-slate-800 p-3 rounded-xl cursor-pointer hover:border-slate-700 transition">
+                    <input type="checkbox" name="pref-type" value="Technical Books" class="rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-0">
+                    <span class="text-xs font-medium text-slate-300">Books & Guides</span>
+                </label>
+                <label class="flex items-center space-x-2.5 bg-slate-950 border border-slate-800 p-3 rounded-xl cursor-pointer hover:border-slate-700 transition">
+                    <input type="checkbox" name="pref-type" value="Technical Articles & Blogs" class="rounded bg-slate-900 border-slate-700 text-indigo-600 focus:ring-0">
+                    <span class="text-xs font-medium text-slate-300">Articles & Blogs</span>
+                </label>
+            </div>
+
+            <button onclick="ResourcesController.generate()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-6 py-3 rounded-xl text-xs transition shadow-lg shadow-indigo-600/30">
+                Generate Curated Resources
+            </button>
+        </div>
+
+        <!-- Filtering & Sorting Toolbar -->
+        <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
+            <div class="flex flex-wrap items-center gap-3 flex-1">
+                <!-- Search Filter -->
+                <div class="min-w-[200px] flex-1">
+                    <input id="filter-search" type="text" placeholder="Search keywords, titles, platforms..." class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
+                </div>
+
+                <!-- Price Filter -->
+                <select id="filter-price" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500">
+                    <option value="ALL">All Prices</option>
+                    <option value="FREE">Free Only</option>
+                    <option value="PAID">Paid / Subscription</option>
+                </select>
+
+                <!-- Difficulty Filter -->
+                <select id="filter-difficulty" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500">
+                    <option value="ALL">All Difficulties</option>
+                    <option value="BEGINNER">Beginner</option>
+                    <option value="INTERMEDIATE">Intermediate</option>
+                    <option value="ADVANCED">Advanced</option>
+                </select>
+
+                <!-- Platform Filter (Populated dynamically) -->
+                <select id="filter-platform" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500">
+                    <option value="ALL">All Platforms</option>
+                </select>
+
+                <!-- Resource Type Filter (Populated dynamically) -->
+                <select id="filter-type" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500">
+                    <option value="ALL">All Resource Types</option>
+                </select>
+            </div>
+
+            <!-- Sort Toolbar -->
+            <div class="flex items-center space-x-2">
+                <span class="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Sort:</span>
+                <select id="sort-by" class="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-indigo-300 font-semibold focus:outline-none focus:border-indigo-500">
+                    <option value="relevance">Relevance</option>
+                    <option value="rating">Highest Rated</option>
+                    <option value="newest">Newest Published</option>
+                    <option value="oldest">Oldest Published</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="flex justify-between items-center px-1">
+            <span id="results-count" class="text-xs font-semibold text-slate-400"></span>
+            <button onclick="ResourcesController.resetFilters()" class="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Reset Filters</button>
+        </div>
+
+        <!-- Resource Cards Grid -->
+        <div id="resources-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 pb-12"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/resources.js') }}"></script>
+{% endblock %}
