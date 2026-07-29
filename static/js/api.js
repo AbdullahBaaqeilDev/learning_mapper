@@ -1,4 +1,4 @@
-const ApiClient = {
+window.ApiClient = {
     post: async function(endpoint, payload) {
         const response = await fetch(endpoint, {
             method: 'POST',
