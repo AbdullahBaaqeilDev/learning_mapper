@@ -3,7 +3,7 @@ import json
 import logging
 from google import genai
 from google.genai import types
-from schemas import RoadmapSchema, ResourceListSchema, GenerateNextStepResponse
+from schemas import RoadmapSchema, ResourceListSchema, GenerateNextStepResponse, GoalExpansionResponse
 
 logger = logging.getLogger(__name__)
 
@@ -272,6 +272,40 @@ Respond STRICTLY in valid JSON format with the following structure:
                 'response_mime_type': 'application/json',
                 'response_schema': GenerateNextStepResponse,
                 'temperature': 0.2
+            }
+        )
+        return json.loads(response.text)
+
+    def expand_goal(self, current_roadmap_title: str, new_goal: str, existing_nodes: list) -> dict:
+        """
+        Generates a new branch of learning centered on `new_goal`, treating `existing_nodes` 
+        as mastered prerequisites.
+        """
+        mastered_topics = [f"- {n.get('label')}" for n in existing_nodes]
+
+        prompt = f"""
+        The learner has FULLY COMPLETED their roadmap for "{current_roadmap_title}".
+        
+        MASTERED KNOWLEDGE (Do NOT recreate these concepts):
+        {chr(10).join(mastered_topics)}
+
+        NEW GOAL: "{new_goal}"
+
+        INSTRUCTIONS:
+        1. Assume the user has fully mastered all listed concepts.
+        2. Generate a new progression of nodes leading up to a new Goal node for "{new_goal}".
+        3. Identify the BEST single entry point node in the new branch that connects directly from the user's previous ultimate goal node.
+        4. Do NOT recreate topics already mastered. Focus only on the new skills required to reach "{new_goal}".
+        5. Set the entry point node status to 'current', and subsequent nodes to 'locked'.
+        """
+
+        response = self.client.models.generate_content(
+            model='gemini-3.6-flash',
+            contents=prompt,
+            config={
+                'response_mime_type': 'application/json',
+                'response_schema': GoalExpansionResponse,
+                'temperature': 0.3
             }
         )
         return json.loads(response.text)

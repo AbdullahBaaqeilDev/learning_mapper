@@ -65,3 +65,21 @@ class ResourceItemSchema(BaseModel):
 class ResourceListSchema(BaseModel):
     topic: str
     resources: List[ResourceItemSchema]
+
+class GoalExpansionNode(BaseModel):
+    id: str = Field(description="Unique snake_case ID for the new node, e.g. 'advanced_async'")
+    label: str = Field(description="Concise topic label (2-4 words)")
+    status: str = Field(default="locked", description="Status of node: 'current' for entry point, 'locked' for downstream")
+
+class GoalExpansionEdge(BaseModel):
+    from_node: str = Field(alias="from", description="Source node ID")
+    to_node: str = Field(alias="to", description="Target node ID")
+
+    class Config:
+        populate_by_name = True
+
+class GoalExpansionResponse(BaseModel):
+    reasoning: str = Field(description="Explanation of why this entry node was chosen and how the path bridges from previous knowledge")
+    entry_node_id: str = Field(description="ID of the new node that logically connects directly from the previous goal")
+    new_nodes: List[GoalExpansionNode] = Field(description="List of newly created nodes for the expansion")
+    new_edges: List[GoalExpansionEdge] = Field(description="List of new edges forming the new branch")

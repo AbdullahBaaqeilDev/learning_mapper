@@ -51,5 +51,25 @@ window.ApiClient = {
             throw new Error(errData.error || 'Failed to generate exploration branch');
         }
         return await response.json();
+    },
+
+    expandGoal: async function(payload) {
+        const response = await fetch('/api/expand-goal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                roadmap_title: payload.roadmap_title,
+                new_goal: payload.new_goal,
+                nodes: payload.nodes
+            })
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || 'Failed to expand goal');
+        }
+
+        const resData = await response.json();
+        return resData.data;
     }
 };

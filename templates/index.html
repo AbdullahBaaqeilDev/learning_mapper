@@ -1,6 +1,24 @@
 {% extends "base.html" %}
 
 {% block content %}
+<!-- Floating Top Control Bar (Goal Expansion Button) -->
+<div class="absolute top-6 right-6 z-20 flex flex-col items-end gap-2">
+    <button id="btn-create-new-goal" 
+            disabled 
+            onclick="RoadmapController.openGoalExpansionModal()" 
+            class="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:border-slate-700 disabled:cursor-not-allowed text-white font-semibold px-4 py-2.5 rounded-xl text-xs transition shadow-lg border border-emerald-500/30 flex items-center justify-center space-x-2">
+        <span>🎯</span>
+        <span>Create New Goal</span>
+    </button>
+    
+    <button id="reorganize-btn"
+            onclick="RoadmapController.reorganizeLayout()"
+            class="w-full bg-slate-800 hover:bg-slate-700 text-white font-semibold px-4 py-2.5 rounded-xl text-xs transition shadow-lg border border-slate-700 flex items-center justify-center space-x-2">
+        <span>🔄</span>
+        <span>Reorganize Graph</span>
+    </button>
+</div>
+
 <!-- Onboarding Modal -->
 <div id="onboarding-panel" class="absolute inset-0 bg-slate-950/90 z-20 flex items-center justify-center p-4">
     <div class="bg-slate-900 border border-slate-800 max-w-lg w-full rounded-3xl p-7 shadow-2xl flex flex-col space-y-5">
@@ -29,6 +47,7 @@
         </button>
     </div>
 </div>
+
 <!-- Main Workspace Body -->
 <main class="flex-1 relative overflow-hidden bg-slate-950 w-full h-full">
 
@@ -47,7 +66,6 @@
     </div>
 
 </main>
-
 
 <!-- Node Interaction Modal (Context Menu) -->
 <div id="node-interaction-modal" class="absolute inset-0 bg-slate-950/80 backdrop-blur-sm z-30 hidden items-center justify-center p-4">
@@ -70,7 +88,7 @@
                 <span class="text-xs opacity-60 group-hover:opacity-100 transition">Update state &rarr;</span>
             </button>
 
-            <!-- Action 2: Generate Next Step (Condition-gated) -->
+            <!-- Action 2: Generate Next Step -->
             <button id="btn-action-next-step" onclick="RoadmapController.generateNextStep()" class="w-full bg-slate-800 text-white font-medium p-3.5 rounded-xl transition flex items-center justify-between border border-slate-700">
                 <div class="flex items-center space-x-3">
                     <span class="text-base">⚡</span>
@@ -82,7 +100,7 @@
                 <span class="text-xs">&plus;</span>
             </button>
 
-            <!-- Action 2.5: Explore More (Deep Dive Branching) -->
+            <!-- Action 2.5: Explore More -->
             <button onclick="RoadmapController.exploreMore()" class="w-full bg-purple-950/50 hover:bg-purple-900/50 text-purple-200 border border-purple-800/60 font-medium p-3.5 rounded-xl transition flex items-center justify-between group">
                 <div class="flex items-center space-x-3">
                     <span class="text-base">🧭</span>
@@ -94,7 +112,7 @@
                 <span class="text-xs opacity-60 group-hover:opacity-100 transition">&nearr;</span>
             </button>
 
-            <!-- Action 3: Get Resources (Route redirection) -->
+            <!-- Action 3: Get Resources -->
             <button onclick="RoadmapController.navigateToResources()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold p-3.5 rounded-xl transition flex items-center justify-between shadow-lg shadow-indigo-600/20">
                 <div class="flex items-center space-x-3">
                     <span class="text-base">📚</span>
@@ -105,6 +123,26 @@
                 </div>
                 <span class="text-xs">&nearr;</span>
             </button>
+        </div>
+    </div>
+</div>
+
+<!-- Goal Expansion Modal -->
+<div id="goal-expansion-modal" class="absolute inset-0 bg-slate-950/80 backdrop-blur-sm z-40 hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 max-w-md w-full rounded-3xl p-6 shadow-2xl flex flex-col space-y-5">
+        <div>
+            <h3 class="text-lg font-bold text-white mb-1">🎉 Roadmap Completed!</h3>
+            <p class="text-xs text-slate-400">Define your next milestone. The AI will extend your existing knowledge graph without repeating mastered topics.</p>
+        </div>
+        
+        <div>
+            <label class="text-xs font-semibold text-slate-300 block mb-1.5">What is your next goal?</label>
+            <input type="text" id="new-goal-input" placeholder="e.g., Deploy Microservices to Kubernetes" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition">
+        </div>
+
+        <div class="flex items-center justify-end space-x-3">
+            <button onclick="RoadmapController.closeGoalExpansionModal()" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white transition">Cancel</button>
+            <button onclick="RoadmapController.submitGoalExpansion()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-4 py-2 rounded-xl text-xs transition shadow-lg shadow-emerald-600/20">Expand Roadmap</button>
         </div>
     </div>
 </div>

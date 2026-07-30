@@ -157,5 +157,21 @@ def breakdown_step():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/expand-goal', methods=['POST'])
+def expand_goal():
+    try:
+        data = request.get_json() or {}
+        roadmap_title = data.get('roadmap_title', 'Learning Roadmap')
+        new_goal = data.get('new_goal', '')
+        nodes = data.get('nodes', [])
+
+        if not new_goal:
+            return jsonify({'error': 'New goal description is required'}), 400
+
+        result = ai_service.expand_goal(roadmap_title, new_goal, nodes)
+        return jsonify({'success': True, 'data': result})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == "__main__":
     app.run(debug=True, port=5000)

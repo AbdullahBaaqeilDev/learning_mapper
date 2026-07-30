@@ -5,6 +5,9 @@ const RoadmapController = {
     currentRoadmapTitle: "",
     selectedNodeId: null,
 
+    targetPositions: {},
+    animationFrameId: null,
+
     styleMap: {
         completed: { background: "#10b981", border: "#059669", text: "#ffffff" }, // Green
         current:   { background: "#8b5cf6", border: "#7c3aed", text: "#ffffff" }, // Purple
@@ -124,67 +127,94 @@ const RoadmapController = {
 
         return { x: posX, y: posY };
     },
+bindEvents: function() {
+        this.lastDragPositions = {};
 
-    bindEvents: function() {
-        // Track node position before drag starts
-        this.dragStartPositions = {};
+        // Disable continuous physics force loop
+        this.network.setOptions({
+            physics: { enabled: false },
+            interaction: { dragNodes: true }
+        });
 
         this.network.on("dragStart", (params) => {
             if (params.nodes.length > 0) {
                 const positions = this.network.getPositions(params.nodes);
+                
                 params.nodes.forEach(nodeId => {
                     if (positions[nodeId]) {
-                        this.dragStartPositions[nodeId] = { ...positions[nodeId] };
+                        // Store initial position to track frame-by-frame delta
+                        this.lastDragPositions[nodeId] = { ...positions[nodeId] };
                     }
+
+                    // Unlock node fixed status so cursor moves it fluently
+                    this.nodesDataset.update({
+                        id: nodeId,
+                        fixed: { x: false, y: false }
+                    });
                 });
             }
         });
 
-        this.network.on("selectNode", (params) => {
-            if (params.nodes.length === 1) {
-                this.openNodeModal(params.nodes[0]);
+        // SMOOTH REAL-TIME DRAGGING: Shift children continuously as the mouse moves
+        this.network.on("dragging", (params) => {
+            if (params.nodes.length > 0) {
+                const currentPositions = this.network.getPositions(params.nodes);
+
+                params.nodes.forEach(nodeId => {
+                    const lastPos = this.lastDragPositions[nodeId];
+                    const currentPos = currentPositions[nodeId];
+
+                    if (lastPos && currentPos) {
+                        const deltaX = currentPos.x - lastPos.x;
+                        const deltaY = currentPos.y - lastPos.y;
+
+                        if (deltaX !== 0 || deltaY !== 0) {
+                            // Queue target offset updates for child subtree
+                            const visited = new Set([nodeId]);
+                            this.updateChildrenTargetsRecursively(nodeId, deltaX, deltaY, visited);
+
+                            // Kick off smooth movement loop
+                            this.startSmoothFollowLoop();
+
+                            this.lastDragPositions[nodeId] = { ...currentPos };
+                        }
+                    }
+                });
             }
         });
 
         this.network.on("dragEnd", (params) => {
             if (params.nodes.length > 0) {
-                // Un-fix layout hierarchy to allow free movement in all directions
-                this.network.setOptions({ layout: { hierarchical: { enabled: false } } });
-
                 const endPositions = this.network.getPositions(params.nodes);
 
                 params.nodes.forEach(nodeId => {
-                    const node = this.nodesDataset.get(nodeId);
-                    const startPos = this.dragStartPositions[nodeId];
                     const endPos = endPositions[nodeId];
-
-                    if (node && startPos && endPos) {
-                        // Calculate offset distance (delta)
-                        const deltaX = endPos.x - startPos.x;
-                        const deltaY = endPos.y - startPos.y;
-
-                        // Update dragged parent node
-                        node.x = endPos.x;
-                        node.y = endPos.y;
-                        this.nodesDataset.update(node);
-
-                        // Move all child nodes by the same delta if moved
-                        if (deltaX !== 0 || deltaY !== 0) {
-                            const visited = new Set([nodeId]); // Mark root dragged node as visited
-                            this.moveChildrenRecursively(nodeId, deltaX, deltaY, visited);
-                        }
+                    if (endPos) {
+                        // Lock parent position on drop
+                        this.nodesDataset.update({
+                            id: nodeId,
+                            x: endPos.x,
+                            y: endPos.y,
+                            fixed: { x: true, y: true }
+                        });
                     }
                 });
 
-                // Clear tracked drag start positions
-                this.dragStartPositions = {};
+                this.lastDragPositions = {};
 
+                // Save roadmap history & storage
                 if (window.roadmapHistory) {
                     window.roadmapHistory.recordDrag(this.getCurrentState());
                 }
                 if (typeof StorageManager !== 'undefined') {
                     StorageManager.saveRoadmap(this.getCurrentState());
                 }
+            }
+        });
+
+        this.network.on("selectNode", (params) => {
+            if (params.nodes.length === 1) {
+                this.openNodeModal(params.nodes[0]);
             }
         });
 
@@ -202,6 +232,65 @@ const RoadmapController = {
                 this.executeRedo();
             }
         });
+    },
+
+    // Ticker function to smoothly move child nodes towards their targets at constant speed
+    startSmoothFollowLoop: function() {
+        if (this.animationFrameId) return; // Loop already running
+
+        const moveLoop = () => {
+            const updates = [];
+            const speed = 12; // Speed limit in pixels per frame (adjust to make faster/slower)
+            let remainingTargets = false;
+
+            Object.keys(this.targetPositions).forEach(nodeId => {
+                const target = this.targetPositions[nodeId];
+                const node = this.nodesDataset.get(nodeId);
+
+                if (node && target) {
+                    const currentX = node.x || 0;
+                    const currentY = node.y || 0;
+
+                    const dx = target.x - currentX;
+                    const dy = target.y - currentY;
+                    const distance = Math.hypot(dx, dy);
+
+                    // If not yet at target position
+                    if (distance > 0.5) {
+                        remainingTargets = true;
+
+                        // Calculate step based on fixed constant speed
+                        const step = Math.min(distance, speed);
+                        const angle = Math.atan2(dy, dx);
+
+                        const newX = currentX + Math.cos(angle) * step;
+                        const newY = currentY + Math.sin(angle) * step;
+
+                        updates.push({
+                            id: nodeId,
+                            x: newX,
+                            y: newY,
+                            fixed: { x: true, y: true }
+                        });
+                    } else {
+                        // Reached target destination exactly
+                        delete this.targetPositions[nodeId];
+                    }
+                }
+            });
+
+            if (updates.length > 0) {
+                this.nodesDataset.update(updates);
+            }
+
+            if (remainingTargets) {
+                this.animationFrameId = requestAnimationFrame(moveLoop);
+            } else {
+                this.animationFrameId = null; // Stop animation loop when settled
+            }
+        };
+
+        this.animationFrameId = requestAnimationFrame(moveLoop);
     },
 
     executeUndo: function() {
@@ -315,43 +404,59 @@ const RoadmapController = {
 
     markSelectedAsFinished: function() {
         if (!this.selectedNodeId) return;
+
         const node = this.nodesDataset.get(this.selectedNodeId);
-        if (!node) return;
+        if (node) {
+            // 1. Update target node to completed (Green)
+            node.status = 'completed';
+            const style = this.styleMap.completed;
+            node.color = { background: style.background, border: style.border };
+            node.font = { color: style.text };
+            
+            this.nodesDataset.update(node);
+            this.closeNodeModal();
 
-        // 1. Mark target node as completed (Green)
-        node.status = 'completed';
-        const style = this.styleMap.completed;
-        node.color = { background: style.background, border: style.border };
-        node.font = { color: style.text };
-        this.nodesDataset.update(node);
-
-        // 2. Propagate state change to adjacent locked neighbors
-        this.propagateCompletionState(node.id);
-
-        // 3. Persist state and refresh modal
-        this.commitState(true);
-        this.openNodeModal(this.selectedNodeId);
+            // 2. Unlock downstream nodes and update them to current (Purple)
+            this.propagateCompletionState(this.selectedNodeId);
+            
+            // 3. Re-evaluate overall roadmap state and UI eligibility
+            this.commitState(true);
+            this.checkGoalExpansionEligibility();
+        }
     },
 
     propagateCompletionState: function(completedNodeId) {
-        const connectedEdgeIds = this.network.getConnectedEdges(completedNodeId);
+        // Find outgoing edges where completedNodeId is the prerequisite (source/from)
+        const outgoingEdges = this.edgesDataset.get({
+            filter: edge => edge.from === completedNodeId
+        });
+
         const updatedNodes = [];
 
-        connectedEdgeIds.forEach(edgeId => {
-            const edge = this.edgesDataset.get(edgeId);
-            if (!edge) return;
+        outgoingEdges.forEach(edge => {
+            const targetNodeId = edge.to;
+            const targetNode = this.nodesDataset.get(targetNodeId);
 
-            // Determine neighboring node ID
-            const neighborId = (edge.from === completedNodeId) ? edge.to : edge.from;
-            const neighborNode = this.nodesDataset.get(neighborId);
+            // Only transition downstream nodes if they are currently 'locked'
+            if (targetNode && targetNode.status === 'locked') {
+                // Check if all prerequisites leading into targetNode are completed
+                const incomingEdges = this.edgesDataset.get({
+                    filter: e => e.to === targetNodeId
+                });
 
-            // Rule: Only unlock neighboring nodes if they are currently 'locked' (Gray)
-            if (neighborNode && neighborNode.status === 'locked') {
-                const style = this.styleMap.current; // Transition to Purple
-                neighborNode.status = 'current';
-                neighborNode.color = { background: style.background, border: style.border };
-                neighborNode.font = { color: style.text };
-                updatedNodes.push(neighborNode);
+                const allPrereqsMet = incomingEdges.every(e => {
+                    const prereqNode = this.nodesDataset.get(e.from);
+                    return prereqNode && (prereqNode.status === 'completed' || prereqNode.status === 'finished');
+                });
+
+                // If all incoming prerequisites are done, unlock to 'current' (Purple)
+                if (allPrereqsMet) {
+                    const style = this.styleMap.current;
+                    targetNode.status = 'current';
+                    targetNode.color = { background: style.background, border: style.border };
+                    targetNode.font = { color: style.text };
+                    updatedNodes.push(targetNode);
+                }
             }
         });
 
@@ -360,40 +465,48 @@ const RoadmapController = {
         }
     },
 
-    moveChildrenRecursively: function(parentNodeId, deltaX, deltaY, visited = new Set()) {
-        // Prevent infinite loops in cyclical graphs
-        if (visited.has(parentNodeId)) return;
-        visited.add(parentNodeId);
-
-        // Get all connected edges
-        const connectedEdges = this.edgesDataset.get({
-            filter: edge => edge.from === parentNodeId
+    moveChildrenRecursively: function(parentId, deltaX, deltaY, visited) {
+        // Find outgoing edges where parentId is the source
+        const childEdges = this.edgesDataset.get({
+            filter: edge => edge.from === parentId
         });
 
-        connectedEdges.forEach(edge => {
-            const childNodeId = edge.to;
-            
-            // Skip if child was already processed in this drag operation
-            if (visited.has(childNodeId)) return;
+        const updates = [];
 
-            const childNode = this.nodesDataset.get(childNodeId);
-            const currentPos = this.network.getPositions([childNodeId])[childNodeId];
+        childEdges.forEach(edge => {
+            const childId = edge.to;
 
-            if (childNode && currentPos) {
-                // Calculate and update child's new absolute position using the same offset
-                const newX = currentPos.x + deltaX;
-                const newY = currentPos.y + deltaY;
+            // Prevent infinite loops in cyclic dependencies
+            if (!visited.has(childId)) {
+                visited.add(childId);
 
-                // Update node in dataset and vis network view
-                childNode.x = newX;
-                childNode.y = newY;
-                this.nodesDataset.update(childNode);
-                this.network.moveNode(childNodeId, newX, newY);
+                // Fetch directly from nodesDataset to get the true stored X and Y
+                const childNode = this.nodesDataset.get(childId);
+                
+                if (childNode) {
+                    // Fallback to network positions if x/y are not on the dataset object yet
+                    const currentPos = this.network.getPositions([childId])[childId] || { x: childNode.x || 0, y: childNode.y || 0 };
 
-                // Recursively move downstream children of this child
-                this.moveChildrenRecursively(childNodeId, deltaX, deltaY, visited);
+                    const newX = currentPos.x + deltaX;
+                    const newY = currentPos.y + deltaY;
+
+                    updates.push({
+                        id: childId,
+                        x: newX,
+                        y: newY,
+                        // Lock coordinates so physics/solver never overrides the drag shift
+                        fixed: { x: true, y: true }
+                    });
+
+                    // Recurse deeper down the child tree
+                    this.moveChildrenRecursively(childId, deltaX, deltaY, visited);
+                }
             }
         });
+
+        if (updates.length > 0) {
+            this.nodesDataset.update(updates);
+        }
     },
     
     generateNextStep: async function() {
@@ -475,6 +588,10 @@ const RoadmapController = {
         const node = this.nodesDataset.get(this.selectedNodeId);
         if (!node) return;
 
+        // 1. Get current position of parent node in canvas space
+        const positions = this.network.getPositions([this.selectedNodeId]);
+        const parentPos = positions[this.selectedNodeId] || { x: node.x || 0, y: node.y || 0 };
+
         this.closeNodeModal();
         this.showLoading(`Mapping deep-dive concepts for "${node.label}"...`);
 
@@ -488,23 +605,70 @@ const RoadmapController = {
                 completed_history: this.getCompletedNodeLabels()
             });
 
-            const formattedNewNodes = result.nodes.map(n => {
+            const newNodesCount = result.nodes.length;
+            
+            // 2. Geometry: Position new nodes in a vertical arc to the RIGHT (+X)
+            const horizontalDistance = 320; // Move safely clear to the right
+            const verticalSpacing = 120;    // Clean gap between nodes
+
+            const formattedNewNodes = result.nodes.map((n, index) => {
                 const style = this.styleMap[n.status] || this.styleMap.current;
+
+                // Evenly center vertically relative to parent Y
+                const yOffset = (index - (newNodesCount - 1) / 2) * verticalSpacing;
+                
+                // Add a subtle arc curve (middle nodes push slightly further right)
+                const arcFactor = Math.sin((index / (newNodesCount - 1 || 1)) * Math.PI) * 50;
+
                 return {
                     id: n.id,
                     label: n.label,
                     status: n.status,
+                    x: parentPos.x + horizontalDistance + arcFactor,
+                    y: parentPos.y + yOffset,
                     color: { background: style.background, border: style.border },
                     font: { color: style.text }
                 };
             });
 
+            // 3. Add to dataset
             this.nodesDataset.add(formattedNewNodes);
             this.edgesDataset.add(result.edges);
-            
             this.commitState(true);
-            setTimeout(() => this.network.fit({ animation: true }), 300);
+            // AUTO-RUN: Automatically reorganize graph layout on spawn
+            this.reorganizeLayout();
+
+            // 4. Trigger a brief physics simulation pass to push overlapping nodes apart
+            this.network.setOptions({
+                physics: {
+                    enabled: true,
+                    solver: 'forceAtlas2Based',
+                    forceAtlas2Based: {
+                        gravitationalConstant: -50,
+                        centralGravity: 0.005,
+                        springLength: 200,
+                        springConstant: 0.08,
+                        avoidOverlap: 1.0 // Strictly prevent bounding-box overlaps
+                    },
+                    stabilization: {
+                        enabled: true,
+                        iterations: 150,
+                        updateInterval: 25
+                    }
+                }
+            });
+
+            // 5. Smooth camera pan to show newly expanded subtree
+            setTimeout(() => {
+                const allBranchNodeIds = [this.selectedNodeId, ...result.nodes.map(n => n.id)];
+                this.network.fit({
+                    nodes: allBranchNodeIds,
+                    animation: { duration: 600, easingFunction: 'easeInOutQuad' }
+                });
+            }, 150);
+
         } catch (error) {
+            console.error("Exploration failed:", error);
             alert(`Exploration failed: ${error.message}`);
         } finally {
             this.hideLoading();
@@ -635,7 +799,201 @@ const RoadmapController = {
     hideLoading: function() {
         document.getElementById('loading-overlay').classList.add('hidden');
         document.getElementById('loading-overlay').classList.remove('flex');
-    }
+    },
+
+    // 1. Call this method whenever nodes or edges update to toggle button state
+    checkGoalExpansionEligibility: function() {
+        const btn = document.getElementById('btn-create-new-goal');
+        if (!btn) return;
+
+        const allNodes = this.nodesDataset.get();
+        const allEdges = this.edgesDataset.get();
+
+        if (allNodes.length === 0) {
+            btn.disabled = true;
+            return;
+        }
+
+        // Check Condition 1: Every node is completed/finished
+        const allCompleted = allNodes.every(node => 
+            node.status === 'completed' || node.status === 'finished'
+        );
+
+        // Check Condition 2: Every node has at least 1 edge connection (if 2+ nodes exist)
+        let noOrphans = true;
+        if (allNodes.length > 1) {
+            const connectedNodeIds = new Set();
+            allEdges.forEach(edge => {
+                connectedNodeIds.add(edge.from);
+                connectedNodeIds.add(edge.to);
+            });
+            noOrphans = allNodes.every(node => connectedNodeIds.has(node.id));
+        }
+
+        // Enable button when conditions pass
+        btn.disabled = !(allCompleted && noOrphans);
+    },
+
+    openGoalExpansionModal: function() {
+        document.getElementById('goal-expansion-modal').style.display = 'block';
+    },
+
+    closeGoalExpansionModal: function() {
+        document.getElementById('goal-expansion-modal').style.display = 'none';
+        document.getElementById('new-goal-input').value = '';
+    },
+
+    submitGoalExpansion: async function() {
+        const goalInput = document.getElementById('new-goal-input').value.trim();
+        if (!goalInput) return alert("Please enter your new goal!");
+
+        this.closeGoalExpansionModal();
+        this.showLoading("Designing expansion path for your new goal...");
+
+        try {
+            const allNodes = this.nodesDataset.get();
+            const result = await ApiClient.expandGoal({
+                roadmap_title: this.currentRoadmapTitle,
+                new_goal: goalInput,
+                nodes: allNodes
+            });
+
+            // Find previous goal or rightmost terminal node to anchor placement
+            const positions = this.network.getPositions();
+            let maxCoordinates = { x: 0, y: 0 };
+            let anchorNodeId = allNodes[0].id;
+
+            allNodes.forEach(node => {
+                const pos = positions[node.id] || { x: 0, y: 0 };
+                if (pos.x >= maxCoordinates.x) {
+                    maxCoordinates = pos;
+                    anchorNodeId = node.id;
+                }
+            });
+
+            // Temporarily disable hierarchical lock for clean placement
+            this.network.setOptions({ layout: { hierarchical: { enabled: false } } });
+
+            // Add new nodes with relative horizontal offset
+            let offsetX = maxCoordinates.x + 260;
+            let offsetY = maxCoordinates.y;
+
+            const formattedNewNodes = result.new_nodes.map((node, index) => {
+                const style = this.styleMap[node.status] || this.styleMap.locked;
+                return {
+                    id: node.id,
+                    label: node.label,
+                    status: node.status || 'locked',
+                    x: offsetX + (index * 220),
+                    y: offsetY + (index % 2 === 0 ? 0 : 60),
+                    color: { background: style.background, border: style.border },
+                    font: { color: style.text }
+                };
+            });
+
+            // Add connecting edge from anchor node to AI-selected entry node
+            const connectingEdge = {
+                from: anchorNodeId,
+                to: result.entry_node_id
+            };
+
+            const formattedNewEdges = result.new_edges.map(edge => ({
+                from: edge.from || edge.from_node,
+                to: edge.to || edge.to_node
+            }));
+
+            // Push additions to Vis.js Datasets
+            this.nodesDataset.add(formattedNewNodes);
+            this.edgesDataset.add([connectingEdge, ...formattedNewEdges]);
+
+            // Save state & update eligibility
+            this.commitState(true);
+            this.checkGoalExpansionEligibility();
+            
+            setTimeout(() => this.network.fit({ animation: true }), 300);
+
+        } catch (error) {
+            console.error("Goal Expansion Error:", error);
+            alert(`Failed to expand roadmap: ${error.message}`);
+        } finally {
+            this.hideLoading();
+        }
+    },
+    
+
+    updateChildrenTargetsRecursively: function(parentId, deltaX, deltaY, visited) {
+        const childEdges = this.edgesDataset.get({
+            filter: edge => edge.from === parentId
+        });
+
+        childEdges.forEach(edge => {
+            const childId = edge.to;
+
+            if (!visited.has(childId)) {
+                visited.add(childId);
+
+                // Determine base reference position
+                const currentTarget = this.targetPositions[childId];
+                const node = this.nodesDataset.get(childId);
+
+                const basePos = currentTarget || {
+                    x: node ? node.x || 0 : 0,
+                    y: node ? node.y || 0 : 0
+                };
+
+                // Set new target location
+                this.targetPositions[childId] = {
+                    x: basePos.x + deltaX,
+                    y: basePos.y + deltaY
+                };
+
+                // Recurse down subtree
+                this.updateChildrenTargetsRecursively(childId, deltaX, deltaY, visited);
+            }
+        });
+    },
+
+    reorganizeLayout: function() {
+        if (!this.network || this.nodesDataset.length === 0) return;
+
+        // Unfix nodes so the solver can redistribute the tree freely
+        const unFixedNodes = this.nodesDataset.get().map(node => ({
+            id: node.id,
+            fixed: { x: false, y: false }
+        }));
+        this.nodesDataset.update(unFixedNodes);
+
+        // Run force simulation
+        this.network.setOptions({
+            physics: {
+                enabled: true,
+                solver: 'forceAtlas2Based',
+                forceAtlas2Based: {
+                    gravitationalConstant: -50,
+                    centralGravity: 0.01,
+                    springLength: 160,
+                    springConstant: 0.08,
+                    avoidOverlap: 1.0
+                },
+                stabilization: {
+                    enabled: true,
+                    iterations: 200,
+                    updateInterval: 25
+                }
+            }
+        });
+
+        this.network.stabilize();
+
+        this.network.once('stabilizationIterationsDone', () => {
+            // Turn off continuous continuous movement so manual dragging stays responsive
+            this.network.setOptions({ physics: { enabled: false } });
+            
+            this.network.fit({
+                animation: { duration: 500, easingFunction: 'easeInOutQuad' }
+            });
+        });
+    },
 };
 
 window.addEventListener('DOMContentLoaded', () => {
