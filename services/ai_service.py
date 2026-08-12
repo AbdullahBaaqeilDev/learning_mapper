@@ -3,14 +3,20 @@ import json
 import logging
 from google import genai
 from google.genai import types
-from schemas import RoadmapSchema, ResourceListSchema, GenerateNextStepResponse, GoalExpansionResponse
+from schemas import (
+    RoadmapSchema,
+    ResourceListSchema,
+    GenerateNextStepResponse,
+    GoalExpansionResponse,
+)
 
 logger = logging.getLogger(__name__)
+
 
 class AIService:
     def __init__(self, api_key: str = None):
         """
-        Initializes the GenAI client using an explicit API key or the 
+        Initializes the GenAI client using an explicit API key or the
         GEMINI_API_KEY environment variable.
         """
         key = api_key or os.getenv("GEMINI_API_KEY")
@@ -35,16 +41,16 @@ class AIService:
         )
 
         response = self.client.models.generate_content(
-            model='gemini-3.6-flash',
+            model="gemini-3.6-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
-                response_mime_type='application/json',
+                response_mime_type="application/json",
                 response_schema=RoadmapSchema,
-                temperature=0.3
+                temperature=0.3,
             ),
         )
         data = json.loads(response.text)
-        
+
         # Ensure the isolated goal_node is explicitly included in the nodes list
         if "goal_node" in data and data["goal_node"]:
             goal_id = data["goal_node"]["id"]
@@ -53,7 +59,9 @@ class AIService:
 
         return data
 
-    def expand_node(self, node_label: str, roadmap_title: str, existing_ids: list, parent_id: str) -> dict:
+    def expand_node(
+        self, node_label: str, roadmap_title: str, existing_ids: list, parent_id: str
+    ) -> dict:
         """
         Generates 2 consecutive next-step nodes building upon a finished node.
         """
@@ -67,29 +75,29 @@ class AIService:
         )
 
         response = self.client.models.generate_content(
-            model='gemini-3.6-flash',
+            model="gemini-3.6-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
-                response_mime_type='application/json',
+                response_mime_type="application/json",
                 response_schema=RoadmapSchema,
-                temperature=0.4
+                temperature=0.4,
             ),
         )
-        
+
         # 1. Parse JSON response string into a Python dict
         data = json.loads(response.text)
-        
+
         # 2. Extract raw nodes and edges safely from the parsed dict
         raw_nodes = data.get("nodes", [])
         raw_edges = data.get("edges", [])
 
         existing_set = set(existing_ids)
         sanitized_nodes = []
-        id_map = {} # Map old generated IDs to new guaranteed unique IDs
+        id_map = {}  # Map old generated IDs to new guaranteed unique IDs
 
         for idx, node in enumerate(raw_nodes):
             original_id = node.get("id")
-            
+
             # Make ID unique by incorporating the parent ID or timestamp index if it collides
             new_id = original_id
             if not new_id or new_id in existing_set or new_id in id_map.values():
@@ -106,17 +114,22 @@ class AIService:
             from_node = edge.get("from") or edge.get("from_node")
             to_node = edge.get("to") or edge.get("to_node")
 
-            sanitized_edges.append({
-                "from": id_map.get(from_node, from_node),
-                "to": id_map.get(to_node, to_node)
-            })
+            sanitized_edges.append(
+                {
+                    "from": id_map.get(from_node, from_node),
+                    "to": id_map.get(to_node, to_node),
+                }
+            )
 
-        return {
-            "nodes": sanitized_nodes,
-            "edges": sanitized_edges
-        }
+        return {"nodes": sanitized_nodes, "edges": sanitized_edges}
 
-    def generate_exploration_branch(self, target_label: str, roadmap_title: str, existing_labels: set, completed_history: list) -> dict:
+    def generate_exploration_branch(
+        self,
+        target_label: str,
+        roadmap_title: str,
+        existing_labels: set,
+        completed_history: list,
+    ) -> dict:
         """
         Generates specialized deep-dive subtopics extending from a specific node.
         """
@@ -126,10 +139,10 @@ The user is exploring a dynamic roadmap titled "{roadmap_title}".
 They want to dive deeper into the concept: "{target_label}".
 
 User's Completed Learning History (Do NOT explain basic concepts they already know):
-{', '.join(completed_history) if completed_history else 'None yet.'}
+{", ".join(completed_history) if completed_history else "None yet."}
 
 Existing Roadmap Topics (CRITICAL: Do NOT output any topic listed here or synonyms of them):
-{', '.join(existing_labels)}
+{", ".join(existing_labels)}
 
 Generate 4 to 6 meaningful, highly distinct subtopics or advanced specializations that extend directly from "{target_label}".
 These should represent a natural branching exploration path.
@@ -145,11 +158,10 @@ Respond STRICTLY in valid JSON format with the following structure:
 }}
 """
         response = self.client.models.generate_content(
-            model='gemini-3.6-flash',
+            model="gemini-3.6-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
-                response_mime_type='application/json',
-                temperature=0.4
+                response_mime_type="application/json", temperature=0.4
             ),
         )
 
@@ -162,7 +174,9 @@ Respond STRICTLY in valid JSON format with the following structure:
 
         return json.loads(cleaned_response)
 
-    def generate_resources(self, topic: str, roadmap_title: str, preferences: list) -> dict:
+    def generate_resources(
+        self, topic: str, roadmap_title: str, preferences: list
+    ) -> dict:
         """
         Curates learning resources for a specific topic.
         """
@@ -178,17 +192,19 @@ Respond STRICTLY in valid JSON format with the following structure:
         )
 
         response = self.client.models.generate_content(
-            model='gemini-3.6-flash',
+            model="gemini-3.6-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
-                response_mime_type='application/json',
+                response_mime_type="application/json",
                 response_schema=ResourceListSchema,
-                temperature=0.3
+                temperature=0.3,
             ),
         )
         return json.loads(response.text)
 
-    def breakdown_step(self, target_node_id: str, last_finished_node_id: str = None) -> list:
+    def breakdown_step(
+        self, target_node_id: str, last_finished_node_id: str = None
+    ) -> list:
         """
         Breaks down a node into granular sub-steps.
         """
@@ -197,16 +213,15 @@ Respond STRICTLY in valid JSON format with the following structure:
             f"Consider previous progress context from node '{last_finished_node_id}' if available. "
             "Return JSON containing an array of objects with 'label' and 'description'."
         )
-        
+
         response = self.client.models.generate_content(
-            model='gemini-3.6-flash',
+            model="gemini-3.6-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
-                response_mime_type='application/json',
-                temperature=0.3
+                response_mime_type="application/json", temperature=0.3
             ),
         )
-        
+
         cleaned_response = response.text.strip()
         if cleaned_response.startswith("```"):
             cleaned_response = cleaned_response.split("\n", 1)[1]
@@ -227,8 +242,10 @@ Respond STRICTLY in valid JSON format with the following structure:
         # Format graph summary for prompt
         node_summary = []
         for n in nodes:
-            node_summary.append(f"- ID: {n.get('id')} | Label: '{n.get('label')}' | Status: {n.get('status')}")
-        
+            node_summary.append(
+                f"- ID: {n.get('id')} | Label: '{n.get('label')}' | Status: {n.get('status')}"
+            )
+
         edge_summary = []
         for e in edges:
             edge_summary.append(f"- {e.get('from')} -> {e.get('to')}")
@@ -257,7 +274,7 @@ Respond STRICTLY in valid JSON format with the following structure:
            - Avoid tiny steps and huge leaps.
 
         4. STRICT SEMANTIC DEDUPLICATION:
-           - Compare the proposed topic against ALL existing node labels: {[n.get('label') for n in nodes]}.
+           - Compare the proposed topic against ALL existing node labels: {[n.get("label") for n in nodes]}.
            - DO NOT generate nodes that overlap heavily in scope, mean the same thing, or differ only by phrasing (e.g., 'Loops' vs 'For Loops').
 
         5. RETURN EDGES:
@@ -266,19 +283,21 @@ Respond STRICTLY in valid JSON format with the following structure:
 
         # Call Gemini model using structured output schema
         response = self.client.models.generate_content(
-            model='gemini-3.6-flash',
+            model="gemini-3.6-flash",
             contents=prompt,
             config={
-                'response_mime_type': 'application/json',
-                'response_schema': GenerateNextStepResponse,
-                'temperature': 0.2
-            }
+                "response_mime_type": "application/json",
+                "response_schema": GenerateNextStepResponse,
+                "temperature": 0.2,
+            },
         )
         return json.loads(response.text)
 
-    def expand_goal(self, current_roadmap_title: str, new_goal: str, existing_nodes: list) -> dict:
+    def expand_goal(
+        self, current_roadmap_title: str, new_goal: str, existing_nodes: list
+    ) -> dict:
         """
-        Generates a new branch of learning centered on `new_goal`, treating `existing_nodes` 
+        Generates a new branch of learning centered on `new_goal`, treating `existing_nodes`
         as mastered prerequisites.
         """
         mastered_topics = [f"- {n.get('label')}" for n in existing_nodes]
@@ -300,12 +319,12 @@ Respond STRICTLY in valid JSON format with the following structure:
         """
 
         response = self.client.models.generate_content(
-            model='gemini-3.6-flash',
+            model="gemini-3.6-flash",
             contents=prompt,
             config={
-                'response_mime_type': 'application/json',
-                'response_schema': GoalExpansionResponse,
-                'temperature': 0.3
-            }
+                "response_mime_type": "application/json",
+                "response_schema": GoalExpansionResponse,
+                "temperature": 0.3,
+            },
         )
         return json.loads(response.text)
