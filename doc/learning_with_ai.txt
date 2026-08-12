@@ -1,0 +1,14 @@
+Tagline:
+Learning something means starting with the basics. But after finishing the basics where do you go?
+People face this problem with subject that have more branches like coding, math, physics, etc...
+
+
+
+Description:
+learning with ai is the solution to a problem that face us all when we start a new hobby or learn somthing new.
+when you start learnning something we start with basics. but after we finish the basics where do we go ?
+a lot of people face this problem specially subject that have more diversity like coding, math, physics, etc...
+it simply creates an interface to choose the direction you are heading to with simple intuitive environment.
+
+UI:
+you simply have a
